@@ -2,7 +2,7 @@ from world import *
 
 user = User(move='v3')
 
-level = 2
+level = 4
 world = World(user=user, level=level)
 
 # train

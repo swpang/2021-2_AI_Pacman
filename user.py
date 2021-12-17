@@ -5,6 +5,7 @@ from util import *
 
 class User:
     def __init__(self, y=0, x=0, move='v1'):
+        self.powered = False
         self.y = y
         self.x = x
         self.move = move
@@ -12,9 +13,12 @@ class User:
         self.q = {}
         self.prob_random_action = 0.05
         self.discount = 0.8
-        self.lr = 0.003
+        self.lr = 0.0001
 
-        self.weights = {'bias': 0.0, 'next-ghost': 0.0, 'next-eat': 0.0, 'closest-item': 0.0, 'closest-dot-dist': 0.0, 'closest-ghost-dist': 0.0}
+        # self.weights = {'bias': 0.0, 'next-ghost': 0.0, 'next-eat': 0.0, 'closest-item': 0.0}
+        # self.weights = {'bias': 0.0, 'next-ghost': 0.0, 'next-eat': 0.0, 'closest-item': 0.0, 'closest-dot-dist': 0.0, 'closest-ghost-dist': 0.0}
+        self.weights = {'bias': 0.0, 'next-ghost': 0.0, '2-ghost':0.0, 'next-eat': 0.0, 'closest-item-dist': 0.0}
+        # self.weights = {'bias': 0.0, 'next-ghost': 0.0, 'next-eat': 0.0, 'closest-item-dist': 0.0, 'closest-ghost-dist': 0.0}
 
     def next_pos(self, state, test=False):
         if self.move == 'v1':
@@ -113,15 +117,26 @@ class User:
             next_pos = (self.y + 1, self.x)
         return next_pos
 
-    def get_closest_item(self, state, y, x):
+    def get_closest_item_distance_1(self, state, y, x):
+        distances = []
         if state[y][x] not in [BLANK, ITEM, POWER]:
-            return 0.0
+            return 0
+        for i in range(len(state)):
+            for j in range(len(state[0])):
+                if state[i][j] in [ITEM, POWER]:
+                    distance = (y - i) ** 2 + (x - j) ** 2
+                    distances.append((distance ** 0.5))
+        return min(distances)
+
+    def get_closest_item_distance(self, state, y, x):
+        if state[y][x] not in [BLANK, ITEM, POWER]:
+            return 0
         q = deque([(y, x, 1)])
         visit = set()
         while len(q) > 0:
             y, x, size = q.popleft()
             if state[y][x] in [ITEM, POWER]:
-                return size
+                return 1 / (size ** 2)
             if (y, x) in visit:
                 continue
             visit.add((y, x))
@@ -133,36 +148,90 @@ class User:
                 q.append((y, x + 1, size + 1))
             elif state[y + 1][x] in [BLANK, ITEM, POWER]:
                 q.append((y + 1, x, size + 1))
-        return 0.0
+        return 0
 
-    def get_closest_dot_distance(self, state, y, x):
-        if state[y][x] not in [BLANK, ITEM, POWER]:
-            return 0.0
-        min_distance = sys.float_info.max
+    def get_ghost_num(self, state):
+        num = 0
         for i in range(len(state)):
             for j in range(len(state[0])):
-                if state[i][j] in [ITEM]:
-                    distance = ((y - i) ** 2 + (x - j) ** 2) ** 0.5
-                    min_distance = distance if distance < min_distance else min_distance
-        return min_distance
+                if state[i][j] in [GHOST]:
+                    num += 1
+        return num
+
+    def get_closest_ghost_distance_1(self, state, y, x):
+        distances = []
+        if state[y][x] not in [BLANK, ITEM, POWER]:
+            return 0
+        if self.get_ghost_num(state) == 0:
+            return 0
+        for i in range(len(state)):
+            for j in range(len(state[0])):
+                if state[i][j] in [GHOST]:
+                    distance = (y - i) ** 2 + (x - j) ** 2
+                    distances.append((distance ** 0.5))
+        return min(distances)
 
     def get_closest_ghost_distance(self, state, y, x):
         if state[y][x] not in [BLANK, ITEM, POWER]:
             return 0.0
-        min_distance = sys.float_info.max
+        q = deque([(y, x, 1)])
+        visit = set()
+        while len(q) > 0:
+            y, x, size = q.popleft()
+            if state[y][x] in [GHOST]:
+                return size
+            if (y, x) in visit:
+                continue
+            visit.add((y, x))
+            if state[y - 1][x] in [BLANK, ITEM, POWER, GHOST]:
+                q.append((y - 1, x, size + 1))
+            elif state[y][x - 1] in [BLANK, ITEM, POWER, GHOST]:
+                q.append((y, x - 1, size + 1))
+            elif state[y][x + 1] in [BLANK, ITEM, POWER, GHOST]:
+                q.append((y, x + 1, size + 1))
+            elif state[y + 1][x] in [BLANK, ITEM, POWER, GHOST]:
+                q.append((y + 1, x, size + 1))
+        return 0.0
+
+    def get_capsules(self, state):
+        num = 0
         for i in range(len(state)):
             for j in range(len(state[0])):
-                if state[i][j] in [GHOST]:
-                    distance = ((y - i) ** 2 + (x - j) ** 2) ** 0.5
-                    min_distance = distance if distance < min_distance else min_distance
-        return min_distance
+                if state[i][j] in [ITEM, POWER]:
+                    num += 1
+        return num
+
+    def get_2_ghost_num(self, state, y, x):
+        q = deque([(y, x, 1)])
+        visit = set()
+        count = 0
+        while len(q) <= 2:
+            y, x, size = q.popleft()
+            if state[y][x] in [GHOST]:
+                count += 1
+            if (y, x) in visit:
+                continue
+            visit.add((y, x))
+            if state[y - 1][x] in [BLANK, ITEM, POWER]:
+                q.append((y - 1, x, size + 1))
+            elif state[y][x - 1] in [BLANK, ITEM, POWER]:
+                q.append((y, x - 1, size + 1))
+            elif state[y][x + 1] in [BLANK, ITEM, POWER]:
+                q.append((y, x + 1, size + 1))
+            elif state[y + 1][x] in [BLANK, ITEM, POWER]:
+                q.append((y + 1, x, size + 1))
+        return count
 
     def get_features(self, state, action):
         y, x = self.y, self.x
+        self.powered = False
         for i in range(len(state)):
             for j in range(len(state[0])):
-                if state[i][j] in [USER, PUSER]:
+                if state[i][j] in [USER]:
                     y, x = i, j
+                elif state[i][j] in [PUSER]:
+                    y, x = i, j
+                    self.powered = True
         if action == 0:
             next_y, next_x = y - 1, x
         elif action == 1:
@@ -184,18 +253,29 @@ class User:
             features['next-ghost'] += 1.0
         if next_y < len(state) - 1 and state[next_y + 1][next_x] == GHOST:
             features['next-ghost'] += 1.0
+        if self.powered:
+            features['next-ghost'] = -1 * features['next-ghost']
         features['next-eat'] = 0.0
         if state[next_y][next_x] in [ITEM, POWER]:
             features['next-eat'] = 1.0
-        features['closest-item'] = self.get_closest_item(state, next_y, next_x)
-        features['closest-dot-dist'] = self.get_closest_dot_distance(state, next_y, next_x)
-        features['closest-ghost-dist'] = self.get_closest_ghost_distance(state, next_y, next_x)
 
+        # features['capsules'] = self.get_capsules(state) / (len(state) * len(state[0]))
+
+        features['closest-item-dist'] = self.get_closest_item_distance(state, next_y, next_x) / (len(state) + len(state[0]))
+        '''
+        features['closest-ghost-dist'] = 0.0
+        if not self.powered:
+            features['closest-ghost-dist'] = self.get_closest_ghost_distance(state, next_y, next_x) / (len(state) * len(state[0]))
+        if self.powered:
+            features['closest-ghost-dist'] = -1 * self.get_closest_ghost_distance(state, next_y, next_x) / (len(state) * len(state[0]))
+        # features['ghost-num'] = self.get_ghost_num(state)
+        '''
         return features
 
     def get_q_v3(self, state, action):
         ret = 0.0
         features = self.get_features(state, action)
+        # print('FEATURES : ', features)
         for key in features:
             ret += features[key] * self.weights[key]
         return ret
@@ -214,6 +294,10 @@ class User:
         max_action = max(actions, key=lambda a: self.get_q_v3(state, a))
         q_val = self.get_q_v3(state, max_action)
         max_actions = [a for a in actions if self.get_q_v3(state, a) == q_val]
+        # print(max_actions)
+        # print([self.get_q_v3(state, a) for a in actions])
+        # print('WEIGHTS : ', self.weights)
+        # print('ACTIONS : ', actions)
         return random.choice(max_actions)
 
     def get_action_v3(self, state):
@@ -229,8 +313,7 @@ class User:
         features = self.get_features(state, action)
         weights = copy.deepcopy(self.weights)
         for key in features:
-            features[key] = features[key] * self.lr * delta
-            weights[key] += features[key]
+            weights[key] += features[key] * self.lr * delta
         self.weights = copy.deepcopy(weights)
 
     def next_pos_v3(self, state, test=False):
